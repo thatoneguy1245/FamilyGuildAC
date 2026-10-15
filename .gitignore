@@ -19,3 +19,7 @@
 !.gitkeep
 
 npm_modules
+!/scripts/lua/familyguild
+/build/src/
+/build/build.log
+/backups/
