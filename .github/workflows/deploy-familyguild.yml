@@ -1,0 +1,109 @@
+name: Deploy FamilyGuild
+
+# Manual only. The runner is root on Unraid and can control host Docker.
+# The Tower folder is not a git checkout, so files come from this runner's own
+# checkout (actions/checkout). Nothing runs "git pull" on the server.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Check to only verify paths and list what would change.
+        required: false
+        type: boolean
+        default: true
+      apply_sql:
+        description: Also apply sql/custom/0*-8* (not 90_) to acore_world (backs up first).
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: familyguild-unraid
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, familyguild-deploy]
+    steps:
+      - name: Refuse anything but master
+        run: |
+          if [ "${GITHUB_REF:-}" != "refs/heads/master" ]; then
+            echo "Refusing ${GITHUB_REF:-<unset>}. This runner only deploys master."
+            exit 1
+          fi
+
+      - name: Check out the repo into the runner's work folder
+        uses: actions/checkout@v4
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Deploy, or dry-run
+        env:
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+          APPLY_SQL: ${{ inputs.apply_sql == true && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          srv=/mnt/user/Rompecuori/FamilyGuild
+          src="$GITHUB_WORKSPACE/src"
+
+          command -v docker >/dev/null
+          test -f "$srv/.env"
+          test -f "$srv/docker-compose.yml"
+          test -d "$src/scripts/lua/familyguild"
+          test -d "$src/sql/custom"
+          cd "$srv"
+          docker compose ps --services | grep -qx ac-worldserver
+          echo "Paths exist. Compose project found at $srv."
+
+          echo "Would copy from the checkout (${GITHUB_SHA:0:7}):"
+          echo "  scripts/lua/familyguild/ -> $srv/scripts/lua/familyguild/"
+          echo "  sql/custom/              -> $srv/sql/custom/"
+          echo "  build/*.sh, build/*.yml  -> $srv/build/ (build/src is never touched)"
+          diff -rq "$src/scripts/lua/familyguild" "$srv/scripts/lua/familyguild" || true
+          diff -rq "$src/sql/custom" "$srv/sql/custom" || true
+          if [ "$APPLY_SQL" = "true" ]; then
+            echo "Would back up the 3 databases to $srv/backups/, then apply:"
+            ls "$src"/sql/custom/[0-8]*.sql
+          fi
+          echo "Would restart ac-worldserver. .env and compose files are never changed."
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run. Nothing was changed."
+            exit 0
+          fi
+
+          mkdir -p scripts/lua/familyguild sql/custom build backups
+          cp -a "$src/scripts/lua/familyguild/." scripts/lua/familyguild/
+          cp -a "$src/sql/custom/." sql/custom/
+          cp -a "$src"/build/*.sh "$src"/build/*.yml build/ 2>/dev/null || true
+
+          if [ "$APPLY_SQL" = "true" ]; then
+            DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
+            out=backups/fg-$(date +%F-%H%M)-predeploy.sql
+            docker compose exec -T ac-database mysqldump -uroot -p"$DBPW" \
+              --databases acore_auth acore_characters acore_world > "$out"
+            ls -lh "$out"
+            for f in sql/custom/[0-8]*.sql; do
+              echo "Applying $f"
+              docker compose exec -T ac-database mysql -uroot -p"$DBPW" acore_world < "$f"
+            done
+          fi
+
+          docker compose restart ac-worldserver
+          for _ in $(seq 1 30); do
+            state=$(docker compose ps --format '{{.State}}' ac-worldserver || true)
+            [ "$state" = "running" ] && break
+            sleep 2
+          done
+          docker compose ps ac-worldserver
+          if [ "$state" != "running" ]; then
+            docker compose logs --tail 200 ac-worldserver || true
+            exit 1
+          fi
+          sleep 20
+          docker compose logs --tail 40 ac-worldserver | grep -i -E "ale|eluna|lua|error" || true
+          echo "Deployed. ac-worldserver is running."
