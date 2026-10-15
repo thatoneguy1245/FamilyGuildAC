@@ -16,6 +16,16 @@ on:
         required: false
         type: boolean
         default: false
+      build_images:
+        description: Build the :familyguild images on Tower (build only; no .env change, no restart). Skips the normal deploy.
+        required: false
+        type: boolean
+        default: false
+      skip_modules:
+        description: Space-separated module folder names to leave out of the build (ones that fail to compile).
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: familyguild-unraid
@@ -26,6 +36,7 @@ permissions:
 
 jobs:
   deploy:
+    if: ${{ inputs.build_images != true }}
     runs-on: [self-hosted, linux, familyguild-deploy]
     steps:
       - name: Refuse anything but master
@@ -107,3 +118,57 @@ jobs:
           sleep 20
           docker compose logs --tail 40 ac-worldserver | grep -i -E "ale|eluna|lua|error" || true
           echo "Deployed. ac-worldserver is running."
+
+  build:
+    if: ${{ inputs.build_images == true }}
+    runs-on: [self-hosted, linux, familyguild-deploy]
+    timeout-minutes: 240
+    steps:
+      - name: Refuse anything but master
+        run: |
+          if [ "${GITHUB_REF:-}" != "refs/heads/master" ]; then
+            echo "Refusing ${GITHUB_REF:-<unset>}. This runner only builds master."
+            exit 1
+          fi
+
+      - name: Check out the repo into the runner's work folder
+        uses: actions/checkout@v4
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Build :familyguild images, or dry-run
+        env:
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+          SKIP_MODULES: ${{ inputs.skip_modules }}
+        run: |
+          set -euo pipefail
+          srv=/mnt/user/Rompecuori/FamilyGuild
+          src="$GITHUB_WORKSPACE/src"
+          command -v docker >/dev/null
+          test -f "$src/build/build-familyguild.sh"
+          test -d "$srv"
+          cd "$srv"
+          echo "Free space on $srv:"; df -h "$srv" | tail -1
+          echo "Current images:"; docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep -E 'acore|ac-wotlk' || true
+          echo "Running stack tag (not changed): $(grep ^DOCKER_IMAGE_TAG= .env || echo 'unset (master)')"
+          echo "Would copy build/*.sh, build/*.yml to $srv/build/ and run build/build-familyguild.sh"
+          echo "SKIP_MODULES='${SKIP_MODULES}'"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run. Nothing was changed."
+            exit 0
+          fi
+          mkdir -p build
+          cp -a "$src"/build/*.sh "$src"/build/*.yml build/
+          start=$(date +%s)
+          set +e
+          bash build/build-familyguild.sh 2>&1 | tee build/build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "Build took $(( ($(date +%s)-start)/60 )) min, exit $rc"
+          if [ "$rc" != 0 ]; then
+            echo "---- error lines ----"
+            grep -n -E "error:|Error [0-9]|modules/mod-[a-z-]+" build/build.log | grep -i error | tail -60 || true
+            exit "$rc"
+          fi
+          docker images --format '{{.Repository}}:{{.Tag}} {{.Size}} {{.CreatedSince}}' | grep ':familyguild'
