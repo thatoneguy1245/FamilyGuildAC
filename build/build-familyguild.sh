@@ -39,6 +39,31 @@ for repo in \
 done
 
 cd "$SRC"
-DOCKER_IMAGE_TAG=familyguild docker compose build ac-db-import ac-worldserver ac-authserver
+# Tower has no SSD and docker.img sits on a parity HDD (~20 MB/s), so apt and
+# compile I/O in the default builder takes hours. Build in a throwaway BuildKit
+# container whose state lives in RAM (tmpfs), capped in CPU and memory so the
+# live server keeps its share. Only the finished images are written to disk.
+BK=fg-buildkit
+BK_CPUS=${BK_CPUS:-0-11}
+BK_MEM=${BK_MEM:-36g}
+BK_TMPFS=${BK_TMPFS:-28g}
+stop_bk() { docker stop "$BK" >/dev/null 2>&1 || true; }  # --rm: stopping also removes it
+trap stop_bk EXIT
+if ! docker ps --format '{{.Names}}' | grep -qx "$BK"; then
+  docker run -d --rm --privileged --name "$BK" \
+    --cpuset-cpus "$BK_CPUS" --memory "$BK_MEM" \
+    --tmpfs "/var/lib/buildkit:rw,size=$BK_TMPFS" \
+    moby/buildkit:buildx-stable-1
+fi
+docker buildx inspect fg-ram >/dev/null 2>&1 || \
+  docker buildx create --name fg-ram --driver remote "docker-container://$BK"
+for _ in $(seq 1 30); do docker buildx inspect --bootstrap fg-ram >/dev/null 2>&1 && break; sleep 2; done
+docker buildx inspect fg-ram | grep -E "Status|Driver" || true
+echo "RAM builder ready (cpus $BK_CPUS, mem $BK_MEM, tmpfs $BK_TMPFS)."
+
+export BUILDX_BUILDER=fg-ram
+DOCKER_IMAGE_TAG=familyguild docker compose build --builder fg-ram \
+  --build-arg CTYPE=Release --build-arg CTOOLS_BUILD=db-only \
+  ac-db-import ac-worldserver ac-authserver
 docker tag acore/ac-wotlk-client-data:master acore/ac-wotlk-client-data:familyguild
 echo "Done. Images tagged :familyguild are ready."
