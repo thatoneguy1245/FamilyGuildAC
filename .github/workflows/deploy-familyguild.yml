@@ -21,6 +21,11 @@ on:
         required: false
         type: boolean
         default: false
+      diagnose:
+        description: Read-only report of Docker storage, disks, CPU, RAM and write speed. Changes nothing.
+        required: false
+        type: boolean
+        default: false
       skip_modules:
         description: Space-separated module folder names to leave out of the build (ones that fail to compile).
         required: false
@@ -36,7 +41,7 @@ permissions:
 
 jobs:
   deploy:
-    if: ${{ inputs.build_images != true }}
+    if: ${{ inputs.build_images != true && inputs.diagnose != true }}
     runs-on: [self-hosted, linux, familyguild-deploy]
     steps:
       - name: Refuse anything but master
@@ -120,7 +125,7 @@ jobs:
           echo "Deployed. ac-worldserver is running."
 
   build:
-    if: ${{ inputs.build_images == true }}
+    if: ${{ inputs.build_images == true && inputs.diagnose != true }}
     runs-on: [self-hosted, linux, familyguild-deploy]
     timeout-minutes: 240
     steps:
@@ -172,3 +177,30 @@ jobs:
             exit "$rc"
           fi
           docker images --format '{{.Repository}}:{{.Tag}} {{.Size}} {{.CreatedSince}}' | grep ':familyguild'
+
+  diagnose:
+    if: ${{ inputs.diagnose == true }}
+    runs-on: [self-hosted, linux, familyguild-deploy]
+    timeout-minutes: 20
+    steps:
+      - name: Read-only diagnostics
+        run: |
+          set +e
+          echo "== docker info =="; docker info 2>/dev/null | grep -E "Storage Driver|Docker Root Dir|Backing Filesystem|CPUs|Total Memory|Server Version"
+          root=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null)
+          echo "== df =="; df -h "$root" /var/lib/docker /mnt/cache /mnt/user/Rompecuori 2>&1
+          echo "== mounts =="; mount | grep -E "docker|/mnt/cache|loop" | head -20
+          echo "== /mnt/cache exists? =="; ls -ld /mnt/cache 2>&1; ls /mnt/cache 2>&1 | head -30
+          echo "== pools =="; ls -d /mnt/*/ 2>&1
+          echo "== docker.cfg =="; grep -E "DOCKER_IMAGE_FILE|DOCKER_IMAGE_TYPE|DOCKER_IMAGE_SIZE|DOCKER_ENABLED" /boot/config/docker.cfg 2>&1
+          echo "== share config =="; for f in /boot/config/shares/Rompecuori.cfg /boot/config/shares/system.cfg; do echo "-- $f"; grep -E "shareUseCache|shareCachePool|shareCachePool2" "$f" 2>&1; done
+          echo "== CPU/RAM =="; nproc; free -h; uptime
+          echo "== disks =="; lsblk -d -o NAME,SIZE,ROTA,MODEL 2>&1
+          for d in "$root" /mnt/user/Rompecuori /mnt/cache; do
+            [ -d "$d" ] || { echo "skip $d"; continue; }
+            f="$d/.fg-ddtest-$$"
+            echo "== dd 512MB write in $d =="
+            timeout 300 dd if=/dev/zero of="$f" bs=1M count=512 conv=fdatasync 2>&1 | tail -1
+            rm -f "$f"
+          done
+          echo "Diagnostics done. Nothing was changed."
