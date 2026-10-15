@@ -20,3 +20,6 @@ services:
       AC_AUCTION_HOUSE_BOT_ACCOUNT: "0"
       AC_AUCTION_HOUSE_BOT_GUID: "0"
       AC_SKIP_DEATHKNIGHT_STARTER_ENABLE: "1"
+  ac-db-import:
+    environment:
+      AC_PLAYERBOTS_DATABASE_INFO: "ac-database;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_playerbots"

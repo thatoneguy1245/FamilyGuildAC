@@ -26,6 +26,12 @@ on:
         required: false
         type: boolean
         default: false
+      switch_images:
+        description: "Switch the running stack: familyguild (custom build) or master (roll back). Skips the normal deploy."
+        required: false
+        type: choice
+        options: [none, familyguild, master]
+        default: none
       skip_modules:
         description: Space-separated module folder names to leave out of the build (ones that fail to compile).
         required: false
@@ -41,7 +47,7 @@ permissions:
 
 jobs:
   deploy:
-    if: ${{ inputs.build_images != true && inputs.diagnose != true }}
+    if: ${{ inputs.build_images != true && inputs.diagnose != true && (inputs.switch_images == 'none' || inputs.switch_images == '') }}
     runs-on: [self-hosted, linux, familyguild-deploy]
     steps:
       - name: Refuse anything but master
@@ -125,7 +131,7 @@ jobs:
           echo "Deployed. ac-worldserver is running."
 
   build:
-    if: ${{ inputs.build_images == true && inputs.diagnose != true }}
+    if: ${{ inputs.build_images == true && inputs.diagnose != true && (inputs.switch_images == 'none' || inputs.switch_images == '') }}
     runs-on: [self-hosted, linux, familyguild-deploy]
     timeout-minutes: 360
     steps:
@@ -204,3 +210,91 @@ jobs:
             rm -f "$f"
           done
           echo "Diagnostics done. Nothing was changed."
+
+  switch:
+    if: ${{ inputs.switch_images == 'familyguild' || inputs.switch_images == 'master' }}
+    runs-on: [self-hosted, linux, familyguild-deploy]
+    timeout-minutes: 60
+    steps:
+      - name: Refuse anything but master
+        run: |
+          if [ "${GITHUB_REF:-}" != "refs/heads/master" ]; then echo "Refusing ${GITHUB_REF:-}"; exit 1; fi
+
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Switch images, or dry-run
+        env:
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+          TARGET: ${{ inputs.switch_images }}
+        run: |
+          set -euo pipefail
+          srv=/mnt/user/Rompecuori/FamilyGuild
+          src="$GITHUB_WORKSPACE/src"
+          cd "$srv"
+          test -f .env
+          ts=$(date +%F-%H%M%S)
+          echo "Current tag: $(grep ^DOCKER_IMAGE_TAG= .env || echo unset)"
+          echo "Current COMPOSE_FILE: $(grep ^COMPOSE_FILE= .env || echo unset)"
+          echo "Override present: $(ls docker-compose.override.yml 2>/dev/null || echo none)"
+          if [ -f docker-compose.override.yml ]; then
+            echo "---- existing override (values hidden) ----"
+            sed -E 's/(PASSWORD[^:=]*[:=]).*/\1 ***/I' docker-compose.override.yml
+          fi
+          echo "---- images ----"
+          docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep -E 'ac-wotlk' || true
+          docker compose ps --format '{{.Service}} {{.State}} {{.Image}}'
+          ls -1t .env.bak-* 2>/dev/null | head -3 || true
+          if [ "$TARGET" = familyguild ]; then
+            for i in db-import worldserver authserver client-data; do
+              docker image inspect acore/ac-wotlk-$i:familyguild >/dev/null
+            done
+            echo "All :familyguild images exist."
+          fi
+          if [ "$DRY_RUN" = "true" ]; then echo "Dry run. Nothing was changed."; exit 0; fi
+
+          DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
+          mkdir -p backups build
+          dbs="acore_auth acore_characters acore_world"
+          if docker compose exec -T ac-database mysql -uroot -p"$DBPW" -N -e "SHOW DATABASES LIKE 'acore_playerbots'" 2>/dev/null | grep -q playerbots; then dbs="$dbs acore_playerbots"; fi
+          out=backups/fg-$ts-preswitch-$TARGET.sql
+          docker compose exec -T ac-database mysqldump -uroot -p"$DBPW" --databases $dbs > "$out"
+          ls -lh "$out"
+          [ "$(stat -c %s "$out")" -gt 10000000 ] || { echo "Backup too small"; exit 1; }
+
+          if [ "$TARGET" = familyguild ]; then
+            cp -a .env ".env.bak-$ts"
+            cp -a "$src/build/docker-compose.override.familyguild.yml" build/
+            docker compose exec -T ac-database mysql -uroot -p"$DBPW" -e "CREATE DATABASE IF NOT EXISTS acore_playerbots DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+            files=docker-compose.yml
+            [ -f docker-compose.override.yml ] && files="$files:docker-compose.override.yml"
+            files="$files:build/docker-compose.override.familyguild.yml"
+            sed -i '/^DOCKER_IMAGE_TAG=/d; /^COMPOSE_FILE=/d' .env
+            printf 'DOCKER_IMAGE_TAG=familyguild\nCOMPOSE_FILE=%s\n' "$files" >> .env
+          else
+            bak=$(ls -1t .env.bak-* | head -1)
+            echo "Restoring $bak"
+            cp -a .env ".env.familyguild-$ts"
+            cp -a "$bak" .env
+          fi
+          grep -E '^(DOCKER_IMAGE_TAG|COMPOSE_FILE)=' .env || true
+          docker compose config -q
+          docker compose up -d
+          echo "---- db-import ----"
+          docker compose logs --tail 60 ac-db-import || true
+          echo "Waiting for worldserver..."
+          ok=0
+          for _ in $(seq 1 90); do
+            if docker compose logs ac-worldserver --since 30m 2>/dev/null | grep -q -E "ready\.\.\.|World initialized"; then ok=1; break; fi
+            state=$(docker compose ps --format '{{.State}}' ac-worldserver || true)
+            sleep 10
+          done
+          docker compose ps --format '{{.Service}} {{.State}} {{.Image}}'
+          echo "---- worldserver log highlights ----"
+          docker compose logs ac-worldserver --since 30m | grep -i -E "playerbot|ale|eluna|lua|autobalance|transmog|ahbot|auction|module|error|ready|initialized" | tail -80 || true
+          docker compose logs --tail 20 ac-authserver || true
+          if [ "$ok" != 1 ]; then echo "Worldserver did not report ready."; docker compose logs --tail 150 ac-worldserver; exit 1; fi
+          echo "Switch to $TARGET done."
