@@ -127,7 +127,7 @@ jobs:
   build:
     if: ${{ inputs.build_images == true && inputs.diagnose != true }}
     runs-on: [self-hosted, linux, familyguild-deploy]
-    timeout-minutes: 240
+    timeout-minutes: 360
     steps:
       - name: Refuse anything but master
         run: |
