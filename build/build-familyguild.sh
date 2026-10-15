@@ -24,6 +24,16 @@ for repo in \
   azerothcore/mod-random-enchants \
   azerothcore/mod-skip-dk-starting-area; do
   name=${repo#*/}
+  # SKIP_MODULES="mod-a mod-b": module did not compile; park it outside modules/.
+  if [[ " ${SKIP_MODULES:-} " == *" $name "* ]]; then
+    if [ -d "$SRC/modules/$name" ]; then
+      mkdir -p build/skipped-modules
+      rm -rf "build/skipped-modules/$name"
+      mv "$SRC/modules/$name" "build/skipped-modules/$name"
+    fi
+    echo "Skipping $name (SKIP_MODULES)."
+    continue
+  fi
   if [ -d "$SRC/modules/$name" ]; then git_ -C "src/modules/$name" pull --ff-only
   else git_ clone --depth 1 "https://github.com/$repo.git" "src/modules/$name"; fi
 done
