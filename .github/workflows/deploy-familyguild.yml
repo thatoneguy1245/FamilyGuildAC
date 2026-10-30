@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
       diagnose:
-        description: Read-only report of Docker storage, disks, CPU, RAM and write speed. Changes nothing.
+        description: Read-only report of container status, recent server logs, Docker storage, disks, CPU, RAM and write speed. Changes nothing.
         required: false
         type: boolean
         default: false
@@ -192,6 +192,10 @@ jobs:
       - name: Read-only diagnostics
         run: |
           set +e
+          echo "== containers =="; docker ps -a --format '{{.Names}} {{.Status}}' | grep -i -E 'familyguild|acore'
+          for c in acore-docker-ac-worldserver-1 familyguild-ac-authserver-1; do
+            echo "== last 60 log lines: $c =="; docker logs --tail 60 "$c" 2>&1 | grep -v -i password
+          done
           echo "== docker info =="; docker info 2>/dev/null | grep -E "Storage Driver|Docker Root Dir|Backing Filesystem|CPUs|Total Memory|Server Version"
           root=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null)
           echo "== df =="; df -h "$root" /var/lib/docker /mnt/cache /mnt/user/Rompecuori 2>&1
