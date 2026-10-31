@@ -23,3 +23,15 @@ npm_modules
 /build/src/
 /build/build.log
 /backups/
+
+# Custom patch pipeline: never commit Blizzard client data
+*.dbc
+*.DBC
+*.mpq
+*.MPQ
+**/World of Warcraft/
+**/WoW335a/
+**/Data/enUS/
+patch-pipeline/build/
+patch-pipeline/tools/
+__pycache__/

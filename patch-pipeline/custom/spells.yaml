@@ -1,0 +1,12 @@
+# Declarative custom spells. Each entry clones an existing Spell.dbc row.
+spells:
+  - id: 90001            # high custom ID; build fails if already used
+    clone_from: 133      # Fireball (Rank 1)
+    name: Flare
+    rank: Rank 1
+    description: "Hurls a bright flare at the enemy, causing $s1 Fire damage."
+    tooltip: ""
+    effects:
+      - index: 0
+        base_points: 19  # in-game damage = base_points + 1 .. base_points + die_sides
+        die_sides: 9
