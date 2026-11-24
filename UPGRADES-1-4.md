@@ -1,13 +1,13 @@
 # Upgrades 1-4: ready to apply
 
-Nothing here has been applied yet. Do the parts in order. Every block starts with `cd /mnt/user/Rompecuori/FamilyGuild`; paste each block into the Unraid web Terminal.
+Nothing here has been applied yet. Do the parts in order. Every block starts with `cd /mnt/user/projects/FamilyGuild`; paste each block into the Unraid web Terminal.
 
 Before step 3, apply Copper quest 900004 (its own page). The Iron promotion needs it.
 
 ## 0a. Back up the database (always do this first)
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 mkdir -p backups
 DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
 docker compose exec -T ac-database mysqldump -uroot -p"$DBPW" --databases acore_auth acore_characters acore_world > backups/fg-$(date +%F-%H%M).sql
@@ -17,7 +17,7 @@ ls -lh backups
 The newest file should be bigger than 100 MB. **Restore (rollback for anything below):**
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
 docker compose stop ac-worldserver
 docker compose exec -T ac-database mysql -uroot -p"$DBPW" < backups/PUT-FILE-NAME-HERE.sql
@@ -31,7 +31,7 @@ Pick two new passwords, using only letters and numbers. Replace NEW_DB_PASSWORD 
 Database root password:
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
 docker compose exec -T ac-database mysql -uroot -p"$DBPW" -e "ALTER USER 'root'@'%' IDENTIFIED BY 'NEW_DB_PASSWORD'; ALTER USER 'root'@'localhost' IDENTIFIED BY 'NEW_DB_PASSWORD';"
 cp .env .env.before-password
@@ -51,7 +51,7 @@ GM account: log in as familyadmin and type this in game chat (put your new passw
 This only adds the new folders. It doesn't change .env or the compose files.
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 wget -O /tmp/fg.tar.gz https://github.com/thatoneguy1245/FamilyGuildAC/archive/refs/heads/server-upgrades-1-4.tar.gz
 tar -xzf /tmp/fg.tar.gz --strip-components=1 FamilyGuildAC-server-upgrades-1-4/scripts/lua/familyguild FamilyGuildAC-server-upgrades-1-4/sql/custom FamilyGuildAC-server-upgrades-1-4/build
 ls scripts/lua/familyguild sql/custom build
@@ -66,7 +66,7 @@ What you get:
 - Your plate is shown when you log in and whenever you type `#plate` in chat. Copper players also see their Job Board progress.
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
 docker compose exec -T ac-database mysql -uroot -p"$DBPW" acore_world < sql/custom/10_lampwrights_npcs_iron_quest.sql
 docker compose exec -T ac-database mysql -uroot -p"$DBPW" acore_world < sql/custom/20_plate_gear.sql
@@ -87,7 +87,7 @@ Wait 2 minutes and delete the WoW `Cache` folder. Then, in game as GM, stand ins
 **Rollback:**
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
 docker compose exec -T ac-database mysql -uroot -p"$DBPW" acore_world < sql/custom/90_undo_upgrades.sql
 mv scripts/lua/familyguild /tmp/familyguild-lua-off
@@ -105,7 +105,7 @@ This is one build from the Playerbots fork of AzerothCore. It adds Playerbots, A
 Back up first (step 0a). Then build:
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 bash build/build-familyguild.sh 2>&1 | tee build/build.log
 ```
 
@@ -114,7 +114,7 @@ It's finished when you see "Done. Images tagged :familyguild are ready." If it s
 Switch to the new build:
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
 docker compose exec -T ac-database mysql -uroot -p"$DBPW" -e "CREATE DATABASE IF NOT EXISTS acore_playerbots;"
 cp docker-compose.override.yml docker-compose.override.stock.yml
@@ -133,7 +133,7 @@ db-import applies each module's database changes by itself. Press Ctrl+C once it
 3. Run:
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 DBPW=$(grep ^DOCKER_DB_ROOT_PASSWORD= .env | cut -d= -f2)
 docker compose exec -T ac-database mysql -uroot -p"$DBPW" -e "SELECT a.id AS account, c.guid FROM acore_auth.account a JOIN acore_characters.characters c ON c.account = a.id WHERE a.username = 'AHBOT';"
 ```
@@ -141,7 +141,7 @@ docker compose exec -T ac-database mysql -uroot -p"$DBPW" -e "SELECT a.id AS acc
 4. Put the two numbers in place of ACC and GUID below:
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 sed -i 's/AC_AUCTION_HOUSE_BOT_ACCOUNT: "0"/AC_AUCTION_HOUSE_BOT_ACCOUNT: "ACC"/; s/AC_AUCTION_HOUSE_BOT_GUID: "0"/AC_AUCTION_HOUSE_BOT_GUID: "GUID"/; s/AC_AUCTION_HOUSE_BOT_ENABLE_SELLER: "0"/AC_AUCTION_HOUSE_BOT_ENABLE_SELLER: "1"/' docker-compose.override.yml
 docker compose up -d
 ```
@@ -160,7 +160,7 @@ docker compose up -d
 **Rollback to stock:**
 
 ```
-cd /mnt/user/Rompecuori/FamilyGuild
+cd /mnt/user/projects/FamilyGuild
 cp .env.stock .env
 cp docker-compose.override.stock.yml docker-compose.override.yml
 docker compose up -d

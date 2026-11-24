@@ -4,7 +4,7 @@ This sets up a GitHub Actions runner on Tower so a person, or an agent, can push
 
 The runner is registered on the **FamilyGuildAC** repository only. It runs as root and can control Docker. Deploys are manual, only `master` is allowed, and dry run is on by default.
 
-**How files get to the server:** `/mnt/user/Rompecuori/FamilyGuild` is not a git checkout. The workflow checks out the repo into the runner's own work folder (`actions/checkout`), then copies `scripts/lua/familyguild/`, `sql/custom/` and the `build/` scripts into the Tower folder. Nothing runs `git pull` on the server. `.env`, `docker-compose*.yml` and `build/src/` are never touched.
+**How files get to the server:** `/mnt/user/projects/FamilyGuild` is not a git checkout. The workflow checks out the repo into the runner's own work folder (`actions/checkout`), then copies `scripts/lua/familyguild/`, `sql/custom/` and the `build/` scripts into the Tower folder. Nothing runs `git pull` on the server. `.env`, `docker-compose*.yml` and `build/src/` are never touched.
 
 ## 1. Open the runner page and copy the one-hour token
 
@@ -80,7 +80,7 @@ The workflow file must be on `master` before GitHub shows the button. Run it wit
 Uncheck **dry run**:
 
 1. Checks out `master` into the runner's `_work` folder.
-2. Copies `scripts/lua/familyguild/`, `sql/custom/` and `build/*.sh|*.yml` into `/mnt/user/Rompecuori/FamilyGuild`.
+2. Copies `scripts/lua/familyguild/`, `sql/custom/` and `build/*.sh|*.yml` into `/mnt/user/projects/FamilyGuild`.
 3. Only if **apply_sql** is checked: dumps all three databases to `backups/fg-<date>-predeploy.sql`, then applies `sql/custom/0*`–`8*` (05_quest_900004, 10_, 20_) to `acore_world` in order. `90_undo_upgrades.sql` is never run automatically. (These files delete-then-insert, so rerunning them is safe.)
 4. `docker compose restart ac-worldserver`, waits for it to be running, and prints Lua/error log lines. If it doesn't come up, it prints the last 200 log lines and fails.
 

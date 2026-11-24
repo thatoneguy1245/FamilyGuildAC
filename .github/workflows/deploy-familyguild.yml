@@ -69,7 +69,7 @@ jobs:
           APPLY_SQL: ${{ inputs.apply_sql == true && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          srv=/mnt/user/Rompecuori/FamilyGuild
+          srv=/mnt/user/projects/FamilyGuild
           src="$GITHUB_WORKSPACE/src"
 
           command -v docker >/dev/null
@@ -154,7 +154,7 @@ jobs:
           SKIP_MODULES: ${{ inputs.skip_modules }}
         run: |
           set -euo pipefail
-          srv=/mnt/user/Rompecuori/FamilyGuild
+          srv=/mnt/user/projects/FamilyGuild
           src="$GITHUB_WORKSPACE/src"
           command -v docker >/dev/null
           test -f "$src/build/build-familyguild.sh"
@@ -198,15 +198,15 @@ jobs:
           done
           echo "== docker info =="; docker info 2>/dev/null | grep -E "Storage Driver|Docker Root Dir|Backing Filesystem|CPUs|Total Memory|Server Version"
           root=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null)
-          echo "== df =="; df -h "$root" /var/lib/docker /mnt/cache /mnt/user/Rompecuori 2>&1
+          echo "== df =="; df -h "$root" /var/lib/docker /mnt/cache /mnt/user/projects 2>&1
           echo "== mounts =="; mount | grep -E "docker|/mnt/cache|loop" | head -20
           echo "== /mnt/cache exists? =="; ls -ld /mnt/cache 2>&1; ls /mnt/cache 2>&1 | head -30
           echo "== pools =="; ls -d /mnt/*/ 2>&1
           echo "== docker.cfg =="; grep -E "DOCKER_IMAGE_FILE|DOCKER_IMAGE_TYPE|DOCKER_IMAGE_SIZE|DOCKER_ENABLED" /boot/config/docker.cfg 2>&1
-          echo "== share config =="; for f in /boot/config/shares/Rompecuori.cfg /boot/config/shares/system.cfg; do echo "-- $f"; grep -E "shareUseCache|shareCachePool|shareCachePool2" "$f" 2>&1; done
+          echo "== share config =="; for f in /boot/config/shares/projects.cfg /boot/config/shares/system.cfg; do echo "-- $f"; grep -E "shareUseCache|shareCachePool|shareCachePool2" "$f" 2>&1; done
           echo "== CPU/RAM =="; nproc; free -h; uptime
           echo "== disks =="; lsblk -d -o NAME,SIZE,ROTA,MODEL 2>&1
-          for d in "$root" /mnt/user/Rompecuori /mnt/cache; do
+          for d in "$root" /mnt/user/projects /mnt/cache; do
             [ -d "$d" ] || { echo "skip $d"; continue; }
             f="$d/.fg-ddtest-$$"
             echo "== dd 512MB write in $d =="
@@ -236,7 +236,7 @@ jobs:
           TARGET: ${{ inputs.switch_images }}
         run: |
           set -euo pipefail
-          srv=/mnt/user/Rompecuori/FamilyGuild
+          srv=/mnt/user/projects/FamilyGuild
           src="$GITHUB_WORKSPACE/src"
           cd "$srv"
           test -f .env
